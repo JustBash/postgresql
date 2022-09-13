@@ -1,0 +1,183 @@
+#!/bin/bash
+
+reset
+
+PostgreSQLRoot=/usr/local/pgsql
+
+setupPSQL() {
+    if [ -d $PostgreSQLRoot ]; then
+        rm -r $PostgreSQLRoot
+    fi
+
+    echo "Wich channel want you use?"
+    sleep 2
+    echo "(1) Dev" 
+    echo "(2) Stable" 
+    read wichChannel
+
+    case $wichChannel in
+        "1")
+            wget https://ftp.postgresql.org/pub/source/v15beta4/postgresql-15beta4.tar.bz2
+        ;;
+
+        "2")
+            wget https://ftp.postgresql.org/pub/source/v14.5/postgresql-14.5.tar.bz2
+        ;;
+
+        *)
+            echo "Not valid input"
+        ;;
+    esac
+
+    bunzip2 postgresql-*.tar.bz2
+    tar xvf postgresql-*.tar
+    rm -r postgresql-*.tar
+
+    if ! [ whoami == "$PostgreSQLRoot" ]; then
+        mv postgresql-* $PostgreSQLRoot
+        cd $PostgreSQLRoot
+    else
+        mv postgresql-* pgsql
+        cd pgsql
+    fi
+
+    rm -r COPYRIGHT HISTORY INSTALL README
+
+    echo "Compiling... This take a while"
+
+    bash configure
+    make all
+    make install
+
+    cp -r $PostgreSQLRoot/contrib/*/*.sql $PostgreSQLRoot/share/extension
+    cp -r $PostgreSQLRoot/contrib/*/*.control $PostgreSQLRoot/share/extension
+}
+
+setupData() {
+    if [ -d $PostgreSQLRoot/data ]; then
+        echo "Directory data already exists!"
+        echo "Setup new? [y/N]"
+
+        rm -r $PostgreSQLRoot/data
+        mkdir $PostgreSQLRoot/data
+    else
+        echo "Directory data not exists!"
+        echo "Setup? [y/N]"
+    fi
+    sleep 2
+
+    read setup
+    if [ $setup == "y" ]; then
+        chown postgres $PostgreSQLRoot/data
+        sudo -u postgres $PostgreSQLRoot/bin/initdb -D $PostgreSQLRoot/data
+    fi
+}
+
+startPostgreSQL() {
+    echo "Start PostgreSQL?"
+    read startPostgres
+
+    if [ $startPostgres == "y" ]; then
+        postgresql start
+    fi
+}
+
+accessForRoot() {
+    if ! [ -f /tmp/.s.PGSQL.5432 ]; then
+        startPostgreSQL
+    fi
+
+    sudo -i -u postgres psql << EOF
+        CREATE ROLE root SUPERUSER CREATEDB CREATEROLE LOGIN BYPASSRLS PASSWORD NULL;
+        CREATE DATABASE root OWNER root;
+EOF
+}
+
+if ! [ $1 ]; then
+    echo "No argument specified!"
+    echo "Additionally use either setup, start, restart or stop"
+    exit
+fi
+
+clear
+
+if [ $1 == "setup" ]; then
+    if id -un "root" > /dev/null; then
+        if [ -d $PostgreSQLRoot ]; then
+            echo "PostgreSQL is already installed!"
+            echo "Setup new? [y/N]"
+            read setup
+
+            clear
+
+            if [ $setup == "y" ]; then
+                setupPSQL
+                setupData
+            fi
+        else
+            echo "PostgreSQL is not installed!"
+            echo "Setup? [y/N]"
+            read setup
+
+            clear
+
+            if [ $setup == "y" ]; then
+                setupPSQL
+                setupData
+            else
+                exit
+            fi
+        fi
+        
+        clear
+
+        echo "Setup PostgreSQL access for root? [y/N]"
+        read accessForRoot
+
+        clear
+
+        if [ $accessForRoot == "y" ]; then
+            accessForRoot
+        fi
+
+        if ! [ -f $PostgreSQLRoot/data/postmaster.pid ]; then
+            startPostgreSQL
+        fi
+        exit
+    else
+        echo "You are not root!"
+    fi
+elif [ $1 == "status" ]; then
+    lsof -i:5432
+    exit
+elif [ $1 == "start" ]; then
+    if [ -f $PostgreSQLRoot/data/postmaster.pid ]; then
+        echo "PostgreSQL is already online"
+        exit
+    fi
+elif [ $1 == "restart" ]; then
+    if ! [ -f $PostgreSQLRoot/data/postmaster.pid ]; then
+        echo "PostgreSQL ist offline"
+        exit
+    fi
+elif [ $1 == "stop" ]; then
+    if ! [ -f $PostgreSQLRoot/data/postmaster.pid ]; then
+        echo "PostgreSQL is already offline"
+        exit
+    fi
+else
+    echo "This command do not exists"
+    exit
+fi
+
+if [ $1 ]; then
+    if id -un "root" > /dev/null; then
+        if [ $1 == "--log" ]; then
+            sudo -u postgres $PostgreSQLRoot/bin/pg_ctl -D $PostgreSQLRoot/data -l logfile $1      
+        else
+            sudo -u postgres $PostgreSQLRoot/bin/pg_ctl -D $PostgreSQLRoot/data $1
+        fi
+    else
+        echo "You are not root!"
+    fi
+fi
