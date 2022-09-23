@@ -4,6 +4,35 @@ reset
 
 PostgreSQLRoot=/usr/local/pgsql
 
+if ! command -v make > /dev/null;then
+    apt install make -y
+fi
+
+if ! dpkg -s build-essential > /dev/null; then
+    apt install build-essential -y
+fi
+
+if ! dpkg -s libreadline-dev > /dev/null; then
+    apt install libreadline-dev -y
+fi
+
+if ! dpkg -s zlib1g-dev > /dev/null; then
+    apt install zlib1g-dev -y
+fi
+
+reset
+
+compilePSQL() {
+    echo "Compiling... This take a while"
+
+    bash $PostgreSQLRoot/configure
+
+    clear
+
+    make all
+    make install
+}
+
 setupPSQL() {
     if [ -d $PostgreSQLRoot ]; then
         rm -r $PostgreSQLRoot
@@ -14,6 +43,8 @@ setupPSQL() {
     echo "(1) Dev" 
     echo "(2) Stable" 
     read wichChannel
+
+    clear
 
     case $wichChannel in
         "1")
@@ -26,66 +57,69 @@ setupPSQL() {
 
         *)
             echo "Not valid input"
+            exit
         ;;
     esac
+
+    clear
 
     bunzip2 postgresql-*.tar.bz2
     tar xvf postgresql-*.tar
     rm -r postgresql-*.tar
 
-    if ! [ whoami == "$PostgreSQLRoot" ]; then
-        mv postgresql-* $PostgreSQLRoot
-        cd $PostgreSQLRoot
-    else
-        mv postgresql-* pgsql
-        cd pgsql
-    fi
+    mv postgresql-* $PostgreSQLRoot
+    cd $PostgreSQLRoot
 
-    rm -r COPYRIGHT HISTORY INSTALL README
+    rm -r .g* COPYRIGHT HISTORY INSTALL README
 
-    echo "Compiling... This take a while"
+    clear
 
-    bash configure
-    make all
-    make install
+    compilePSQL
+
+    clear
 
     cp -r $PostgreSQLRoot/contrib/*/*.sql $PostgreSQLRoot/share/extension
     cp -r $PostgreSQLRoot/contrib/*/*.control $PostgreSQLRoot/share/extension
+
+    ln $PostgreSQLRoot/bin/psql /usr/bin/psql
 }
 
 setupData() {
     if [ -d $PostgreSQLRoot/data ]; then
         echo "Directory data already exists!"
+        sleep 2
         echo "Setup new? [y/N]"
-
-        rm -r $PostgreSQLRoot/data
-        mkdir $PostgreSQLRoot/data
-    else
-        echo "Directory data not exists!"
-        echo "Setup? [y/N]"
+        read setup_data
+        
+        if [ $setup_data == "y" ]; then
+            rm -r $PostgreSQLRoot/data
+            mkdir $PostgreSQLRoot/data
+        else
+            exit
+        fi
     fi
-    sleep 2
 
-    read setup
-    if [ $setup == "y" ]; then
-        chown postgres $PostgreSQLRoot/data
-        sudo -u postgres $PostgreSQLRoot/bin/initdb -D $PostgreSQLRoot/data
-    fi
+    clear
+
+    chown postgres $PostgreSQLRoot/data
+    sudo -u postgres $PostgreSQLRoot/bin/initdb -D $PostgreSQLRoot/data
+
+    startPostgreSQL
 }
 
 startPostgreSQL() {
-    echo "Start PostgreSQL?"
-    read startPostgres
+    if ! [ -f /tmp/.s.PGSQL.5432 ]; then
+        echo "Start PostgreSQL?"
+        read startPostgres
 
-    if [ $startPostgres == "y" ]; then
-        postgresql start
+        if [ $startPostgres == "y" ]; then
+            postgresql start
+        fi
     fi
 }
 
 accessForRoot() {
-    if ! [ -f /tmp/.s.PGSQL.5432 ]; then
-        startPostgreSQL
-    fi
+    startPostgreSQL
 
     sudo -i -u postgres psql << EOF
         CREATE ROLE root SUPERUSER CREATEDB CREATEROLE LOGIN BYPASSRLS PASSWORD NULL;
@@ -99,34 +133,24 @@ if ! [ $1 ]; then
     exit
 fi
 
-clear
-
 if [ $1 == "setup" ]; then
     if id -un "root" > /dev/null; then
         if [ -d $PostgreSQLRoot ]; then
             echo "PostgreSQL is already installed!"
             echo "Setup new? [y/N]"
-            read setup
-
-            clear
-
-            if [ $setup == "y" ]; then
-                setupPSQL
-                setupData
-            fi
         else
             echo "PostgreSQL is not installed!"
             echo "Setup? [y/N]"
-            read setup
+        fi
 
+        read setup
+
+        clear
+
+        if [ $setup == "y" ]; then
+            setupPSQL
             clear
-
-            if [ $setup == "y" ]; then
-                setupPSQL
-                setupData
-            else
-                exit
-            fi
+            setupData
         fi
         
         clear
@@ -150,6 +174,46 @@ if [ $1 == "setup" ]; then
 elif [ $1 == "status" ]; then
     lsof -i:5432
     exit
+elif [ $1 == "compile" ]; then
+    if ! [ -d $PostgreSQLRoot ]; then
+        echo "PostgreSQL is not installed!"
+        echo "Run postgresql setup? [y/N]"
+        read runPSQL_setup
+
+        if [ $runPSQL_setup == "y" ]; then
+            postgresql setup
+        else
+            exit
+        fi
+    fi
+
+    if [ -d $PostgreSQLRoot/bin ]; then
+        echo "PostgreSQL is already compiled!"
+        sleep 2
+        echo "Recompile? [y/N]"
+        read reCompile
+
+        clear
+
+        if [ $reCompile == "y" ]; then
+            rm -r $PostgreSQLRoot/bin
+            compilePSQL
+        fi
+    else
+        echo "PostgreSQL is not compiled!"
+        sleep 2
+        echo "Compile? [y/N]"
+        read compile
+
+        clear
+
+        if [ $compile == "y" ]; then
+            compilePSQL
+        fi
+    fi
+elif [ $1 == "setup-data" ]; then
+    setupData
+    exit
 elif [ $1 == "start" ]; then
     if [ -f $PostgreSQLRoot/data/postmaster.pid ]; then
         echo "PostgreSQL is already online"
@@ -170,7 +234,7 @@ else
     exit
 fi
 
-if [ $1 ]; then
+if ([ $1 ] && ! [ $1 == "compile" ] && ! [ $1 == "setup-data" ]); then
     if id -un "root" > /dev/null; then
         if [ $1 == "--log" ]; then
             sudo -u postgres $PostgreSQLRoot/bin/pg_ctl -D $PostgreSQLRoot/data -l logfile $1      

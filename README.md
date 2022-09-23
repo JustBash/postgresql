@@ -1,6 +1,6 @@
 # postgresql
 
-Is a script for installing, setting up and managing PostgreSQL manually
+Is a script for installing, setting up and managing PostgreSQL via the source code
 
 # Features
 
@@ -17,6 +17,7 @@ Is a script for installing, setting up and managing PostgreSQL manually
 wget https://raw.githubusercontent.com/Justman10000/postgresql/main/postgresql
 mv postgresql /usr/bin
 chmod +x /usr/bin/postgresql
+adduser postgres --no-create-home --disabled-login
 ```
 
 After that you can simply call the script via ``postgresql`` in your terminal
@@ -33,7 +34,7 @@ Use the Script like:
 ```
 setup   (Setup PostgreSQL)
 status  (Get PostgreSQL status)
-start   (Sart PostgreSQL)
+start   (Start PostgreSQL)
 restart (Restart PostgreSQL)
 stop    (Shut down PostgreSQL)
 ```
