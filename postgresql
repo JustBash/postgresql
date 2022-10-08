@@ -31,6 +31,10 @@ compilePSQL() {
 
     make all
     make install
+
+    cd $PostgreSQLRoot/contrib
+
+    make install
 }
 
 setupPSQL() {
